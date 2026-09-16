@@ -1,0 +1,211 @@
+# Типи токенів
+INTEGER = 'INTEGER'
+PLUS = 'PLUS'
+MINUS = 'MINUS'
+MUL = 'MUL'
+DIV = 'DIV'
+LPAREN = 'LPAREN'
+RPAREN = 'RPAREN'
+EOF = 'EOF'
+
+
+class Token:
+    def __init__(self, type_, value):
+        self.type = type_
+        self.value = value
+
+    def __repr__(self):
+        return f"Token({self.type}, {repr(self.value)})"
+
+
+class Lexer:
+    def __init__(self, text):
+        self.text = text
+        self.pos = 0
+        self.current_char = self.text[self.pos] if self.text else None
+
+    def advance(self):
+        self.pos += 1
+        if self.pos < len(self.text):
+            self.current_char = self.text[self.pos]
+        else:
+            self.current_char = None
+
+    def skip_whitespace(self):
+        while self.current_char is not None and self.current_char.isspace():
+            self.advance()
+
+    def integer(self):
+        result = ''
+        while self.current_char is not None and self.current_char.isdigit():
+            result += self.current_char
+            self.advance()
+        return int(result)
+
+    def get_next_token(self):
+        while self.current_char is not None:
+            if self.current_char.isspace():
+                self.skip_whitespace()
+                continue
+
+            if self.current_char.isdigit():
+                return Token(INTEGER, self.integer())
+
+            if self.current_char == '+':
+                self.advance()
+                return Token(PLUS, '+')
+
+            if self.current_char == '-':
+                self.advance()
+                return Token(MINUS, '-')
+
+            if self.current_char == '*':
+                self.advance()
+                return Token(MUL, '*')
+
+            if self.current_char == '/':
+                self.advance()
+                return Token(DIV, '/')
+
+            if self.current_char == '(':
+                self.advance()
+                return Token(LPAREN, '(')
+
+            if self.current_char == ')':
+                self.advance()
+                return Token(RPAREN, ')')
+
+            raise ValueError(f"Невідомий символ: {self.current_char}")
+
+        return Token(EOF, None)
+
+
+# Вузли синтаксичного дерева (AST)
+class AST:
+    pass
+
+
+class BinOp(AST):
+    def __init__(self, left, op, right):
+        self.left = left
+        self.token = self.op = op
+        self.right = right
+
+
+class Num(AST):
+    def __init__(self, token):
+        self.token = token
+        self.value = token.value
+
+
+class Parser:
+    def __init__(self, lexer):
+        self.lexer = lexer
+        self.current_token = self.lexer.get_next_token()
+
+    def error(self):
+        raise ValueError("Помилка синтаксичного аналізу")
+
+    def eat(self, token_type):
+        if self.current_token.type == token_type:
+            self.current_token = self.lexer.get_next_token()
+        else:
+            self.error()
+
+    def factor(self):
+        """factor : INTEGER | LPAREN expr RPAREN"""
+        token = self.current_token
+        if token.type == INTEGER:
+            self.eat(INTEGER)
+            return Num(token)
+        elif token.type == LPAREN:
+            self.eat(LPAREN)
+            node = self.expr()
+            self.eat(RPAREN)
+            return node
+        self.error()
+
+    def term(self):
+        """term : factor ((MUL | DIV) factor)*"""
+        node = self.factor()
+
+        while self.current_token.type in (MUL, DIV):
+            token = self.current_token
+            if token.type == MUL:
+                self.eat(MUL)
+            elif token.type == DIV:
+                self.eat(DIV)
+            node = BinOp(left=node, op=token, right=self.factor())
+
+        return node
+
+    def expr(self):
+        """expr : term ((PLUS | MINUS) term)*"""
+        node = self.term()
+
+        while self.current_token.type in (PLUS, MINUS):
+            token = self.current_token
+            if token.type == PLUS:
+                self.eat(PLUS)
+            elif token.type == MINUS:
+                self.eat(MINUS)
+            node = BinOp(left=node, op=token, right=self.term())
+
+        return node
+
+    def parse(self):
+        node = self.expr()
+        if self.current_token.type != EOF:
+            self.error()
+        return node
+
+
+class Interpreter:
+    def __init__(self, parser):
+        self.parser = parser
+
+    def visit(self, node):
+        if isinstance(node, Num):
+            return self.visit_Num(node)
+        elif isinstance(node, BinOp):
+            return self.visit_BinOp(node)
+        raise ValueError(f"Невідомий тип вузла: {type(node)}")
+
+    def visit_Num(self, node):
+        return node.value
+
+    def visit_BinOp(self, node):
+        if node.op.type == PLUS:
+            return self.visit(node.left) + self.visit(node.right)
+        elif node.op.type == MINUS:
+            return self.visit(node.left) - self.visit(node.right)
+        elif node.op.type == MUL:
+            return self.visit(node.left) * self.visit(node.right)
+        elif node.op.type == DIV:
+            right_val = self.visit(node.right)
+            if right_val == 0:
+                raise ZeroDivisionError("Ділення на нуль")
+            return self.visit(node.left) / right_val
+
+    def interpret(self):
+        tree = self.parser.parse()
+        return self.visit(tree)
+
+
+# Тестування
+if __name__ == '__main__':
+    test_cases = [
+        ("2 + 3", 5),
+        ("10 - 4 + 2", 8),
+        ("2 + 3 * 4", 14),
+        ("(2 + 3) * 4", 20),
+        ("100 / (2 + 3) * 2", 40.0),
+        ("10 / 2 + 5 * (3 - 1)", 15.0),
+    ]
+
+    for expr_str, expected in test_cases:
+        lexer = Lexer(expr_str)
+        parser = Parser(lexer)
+        interpreter = Interpreter(parser)
+        result = interpreter.interpret()
+        print(f"{expr_str} = {result} (Очікувалося: {expected})")
